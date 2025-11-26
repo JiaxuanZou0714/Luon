@@ -12,10 +12,12 @@
 
 This repository implements comparative experiments of three regularization strategies:
 
+> **Notation:** $\text{NS}(\cdot)$ denotes the Newton-Schulz iteration, which approximates the matrix sign function: $\text{NS}(W) \approx W(W^TW)^{-1/2} \approx UV^T$
+
 | Method | Optimizer | Low-Rank Decay Approach | Update Formula |
 |--------|-----------|------------------------|----------------|
 | **L2 Baseline** | AdamW | Weight Decay | $W \leftarrow W - \eta \cdot \text{Adam}(G) - \lambda W$ |
-| **Explicit LowRank (栀染)** | AdamW + Callback | Decoupled Nuclear Norm Decay | $W \leftarrow W - \eta \cdot \text{Adam}(G) - \alpha \cdot \text{Sign}(W)$ |
+| **Explicit LowRank (栀染)** | AdamW + Callback | Decoupled Nuclear Norm Decay | $W \leftarrow W - \eta \cdot \text{Adam}(G) - \alpha \cdot \text{NS}(W)$ |
 | **Luon (Proposed)** | Muon | Fused Nuclear Norm Decay | $W \leftarrow W - \eta \cdot \text{NS}(\text{Momentum}(G + \lambda W))$ |
 
 ---
