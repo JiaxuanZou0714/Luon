@@ -393,7 +393,7 @@ def run_mechanism_analysis(args):
     # --- 3. LowRank Muon (Fused) ---
     # Using high lambda to ensure NS(G + lambda*W) feels the W.
     print("3. LowRank Muon (Fused)...")
-    hist_muon, model_muon = train_run(args, 'LowRankMuon', 0.1, args.device)
+    hist_muon, model_muon = train_run(args, 'LowRankMuon', 0.5, args.device)
 
     # --- Visualization ---
     fig = plt.figure(figsize=(18, 10))
@@ -460,12 +460,12 @@ def run_mechanism_analysis(args):
     plot_attn(model_muon, ax6, "Muon LR Pattern")
 
     plt.tight_layout()
-    plt.savefig("mechanism_analysis_final.png", dpi=150)
-    print("Done. Saved to mechanism_analysis_final.png")
+    plt.savefig("assets/mechanism_analysis_final.png", dpi=150)
+    print("Done. Saved to assets/mechanism_analysis_final.png")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--steps', type=int, default=3000)
+    parser.add_argument('--steps', type=int, default=2000)
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     args = parser.parse_args()
 
