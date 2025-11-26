@@ -138,18 +138,17 @@ class HybridLowRankMuon(optim.Optimizer):
                     buf = state['momentum_buffer']
 
                     # -----------------------------------------------------------
-                    # Strict Implementation of: W_{t+1} = W_t - eta * Op(G + lambda*W)
+                    # Implementation of: W_{t+1} = W_t - eta * NS(Momentum(G) + lambda*W)
                     # -----------------------------------------------------------
 
-                    # 1. Construct the Fused Gradient: G_tilde = G + lambda * W
-                    g_fused = g + wd * p
+                    # 1. Update Momentum: M_{t+1} = mu * M_t + G
+                    buf.mul_(mu).add_(g)
 
-                    # 2. Update Momentum: M_{t+1} = mu * M_t + G_tilde
-                    buf.mul_(mu).add_(g_fused)
+                    # 2. Fuse with Weight Decay: M_fused = M + lambda * W
+                    m_fused = buf + wd * p
 
-                    # 3. Apply Operator: U = NewtonSchulz(M_{t+1})
-                    # Note: We clone buf to avoid modifying the momentum buffer during NS
-                    update_direction = newton_schulz_robust(buf.clone(), steps=5)
+                    # 3. Apply Operator: U = NewtonSchulz(M_fused)
+                    update_direction = newton_schulz_robust(m_fused, steps=5)
 
                     # 4. Apply Update: W_{t+1} = W_t - lr * U
                     p.sub_(lr * update_direction)
@@ -460,8 +459,8 @@ def run_mechanism_analysis(args):
     plot_attn(model_muon, ax6, "Muon LR Pattern")
 
     plt.tight_layout()
-    plt.savefig("mechanism_analysis_final.png", dpi=150)
-    print("Done. Saved to mechanism_analysis_final.png")
+    plt.savefig("assets/mechanism_analysis_final.png", dpi=150)
+    print("Done. Saved to assets/mechanism_analysis_final.png")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
