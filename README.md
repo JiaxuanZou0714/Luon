@@ -66,7 +66,7 @@ python Luon.py --steps 3000 --device cuda
 - 奇异值谱分布
 - Attention Pattern 可视化
 
-![](mechanism_analysis_final.png)
+![](assets/mechanism_analysis_final.png)
 
 ---
 
