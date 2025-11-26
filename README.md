@@ -4,99 +4,99 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![Status](https://img.shields.io/badge/Status-Experimental-blue)]()
 
-> **TL;DR:** 在现代 LLM 架构（RMSNorm, QK-Norm）中，标准 L2 Weight Decay 因尺度不变性而无法有效控制模型复杂度。栀提出一种基于 Newton-Schulz 迭代的低秩正则化方法，我们在此基础上并将其融合到 Muon 优化器中，形成 **Luon (Low-rank Muon)**，在 Grokking 任务上实现更快的泛化。
+> **TL;DR:** In modern LLM architectures (RMSNorm, QK-Norm), standard L2 Weight Decay fails to effectively control model complexity due to scale invariance. Zhi proposed a low-rank regularization method based on Newton-Schulz iteration, and we further fuse it into the Muon optimizer, forming **Luon (Low-rank Muon)**, achieving faster generalization on Grokking tasks.
 
 ---
 
-## 🔥 核心方法
+## 🔥 Core Methods
 
-本仓库实现了三种正则化策略的对比实验：
+This repository implements comparative experiments of three regularization strategies:
 
-| 方法 | 优化器 | 低秩衰减方式 | 更新公式 |
-|------|--------|-------------|----------|
+| Method | Optimizer | Low-Rank Decay Approach | Update Formula |
+|--------|-----------|------------------------|----------------|
 | **L2 Baseline** | AdamW | Weight Decay | $W \leftarrow W - \lambda W$ |
-| **Explicit LowRank** | AdamW + 回调 | 解耦的核范数衰减 | $W \leftarrow W - \alpha \cdot \text{Sign}(W)$ |
-| **Luon (Fused)** | Muon + AdamW | 融合的核范数衰减 | $W \leftarrow W - \eta \cdot \text{NS}(\text{Momentum}(G + \lambda W))$ |
+| **Explicit LowRank** | AdamW + Callback | Decoupled Nuclear Norm Decay | $W \leftarrow W - \alpha \cdot \text{Sign}(W)$ |
+| **Luon (Fused)** | Muon | Fused Nuclear Norm Decay | $W \leftarrow W - \eta \cdot \text{NS}(\text{Momentum}(G + \lambda W))$ |
 
 ---
 
-## 🧠 原始动机（proposed by 栀）
+## 🧠 Original Motivation (Proposed by Zhi)
 
-### L2 Decay 在尺度不变网络中失效
+### L2 Decay Fails in Scale-Invariant Networks
 
-现代 Transformer（如 Gemma 3, LLaMA）大量使用归一化层。在这些**尺度不变架构**中：
+Modern Transformers (e.g., Gemma 3, LLaMA) extensively use normalization layers. In these **scale-invariant architectures**:
 
 $$\text{Norm}(\alpha W x) = \text{Norm}(W x)$$
 
-L2 Weight Decay 惩罚的是 $\|W\|_F^2$，优化器可以简单地缩小权重而不改变函数行为，无法真正降低复杂度（秩）。
+L2 Weight Decay penalizes $\|W\|_F^2$, allowing the optimizer to simply shrink weights without changing functional behavior, failing to truly reduce complexity (rank).
 
-### 解决方案：Nuclear Norm ($\|W\|_*$)
+### Solution: Nuclear Norm ($\|W\|_*$)
 
-要在尺度不变网络中控制复杂度，必须控制**秩**而非幅度。但求解秩是一个NP-hard问题，所以我们可以考虑它的凸松弛，核范数正则化：
+To control complexity in scale-invariant networks, we must control **rank** rather than magnitude. However, solving for rank is an NP-hard problem, so we consider its convex relaxation—nuclear norm regularization:
 
 $$\mathcal{L} = \mathcal{L}_{task} + \lambda \sum_i \sigma_i(W)$$
 
-相当于对奇异值施加 L1 惩罚，促进**谱稀疏性**。
+This is equivalent to applying L1 penalty on singular values, promoting **spectral sparsity**.
 
-### 高效实现：Newton-Schulz 迭代
+### Efficient Implementation: Newton-Schulz Iteration
 
-每步计算 SVD 太慢。我们使用 **Newton-Schulz 迭代** 逼近矩阵符号函数：
+Computing SVD at every step is too slow. We use **Newton-Schulz iteration** to approximate the matrix sign function:
 
 $$\text{Sign}(W) = W (W^T W)^{-1/2} \approx U V^T$$
 
-这是核范数的次梯度，只需矩阵乘法即可高效计算。
+This is the subgradient of the nuclear norm, efficiently computed using only matrix multiplications.
 
-## What's new?
+## What's New?
 
-### 正则项的位置：回到 Adam
+### Position of Regularization Term: Back to Adam
 
-早期 Adam 将 weight decay 直接加在梯度上，但这在数学上是不正确的——由于 Adam 使用自适应学习率和动量机制，正确做法是将 weight decay **解耦**，直接作用于参数本身，这就是 AdamW 的由来。Muon 优化器沿用了这一解耦思路。
+Early Adam added weight decay directly to the gradient, but this is mathematically incorrect—since Adam uses adaptive learning rates and momentum mechanisms, the correct approach is to **decouple** weight decay and apply it directly to the parameters themselves. This is the origin of AdamW. The Muon optimizer follows this decoupling philosophy.
 
-然而，当我们使用 Newton-Schulz 迭代计算核范数的次梯度时，解耦方式会带来效率问题：
+However, when we use Newton-Schulz iteration to compute the subgradient of the nuclear norm, decoupling introduces efficiency issues:
 
-| 方式 | NS 计算次数 | 说明 |
-|------|------------|------|
-| 解耦 | **2次** | Sign(W) 用于正则化 + Sign(momentum) 用于更新 |
-| 融合 | **1次** | Sign(momentum + λW) 同时完成两者 |
+| Approach | NS Computations | Description |
+|----------|----------------|-------------|
+| Decoupled | **2 times** | Sign(W) for regularization + Sign(momentum) for update |
+| Fused | **1 time** | Sign(momentum + λW) accomplishes both simultaneously |
 
-为了避免双重计算，我们提出将核范数正则项 **融合** 进 Muon 的梯度更新中：
+To avoid double computation, we propose **fusing** the nuclear norm regularization term into Muon's gradient update:
 
 $$\text{Update} = \text{NS}\big(\text{Momentum}(G + \lambda W)\big)$$
 
-这样只需一次 Newton-Schulz 迭代，效率提升近一倍。我称之为 **"回到 Adam"**——正则项重新融入梯度，但这次是正确的。
+This requires only one Newton-Schulz iteration, nearly doubling efficiency. I call this **"Back to Adam"**—the regularization term is re-integrated into the gradient, but correctly this time.
 
 ---
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 环境依赖
+### Dependencies
 ```bash
 pip install torch numpy matplotlib tqdm seaborn
 ```
 
-### 运行实验
+### Run Experiment
 ```bash
 python Luon.py --steps 3000 --device cuda
 ```
 
-这将生成 `mechanism_analysis_final.png`，包含：
-- Grokking 速度对比
-- Effective Rank 演化
-- 奇异值谱分布
-- Attention Pattern 可视化
+This will generate `mechanism_analysis_final.png`, containing:
+- Grokking speed comparison
+- Effective Rank evolution
+- Singular value spectrum distribution
+- Attention Pattern visualization
 
 ![](assets/mechanism_analysis_final.png)
 
 ---
 
-## 💻 核心算法
+## 💻 Core Algorithms
 
-### 1. Newton-Schulz 迭代
+### 1. Newton-Schulz Iteration
 
 ```python
 def newton_schulz_robust(M, steps=5, epsilon=1e-7):
-    """计算矩阵符号函数: Sign(M) = M * (M^T * M)^(-1/2)"""
-    M = M / (M.norm() + epsilon)  # 谱范数归一化
+    """Compute matrix sign function: Sign(M) = M * (M^T * M)^(-1/2)"""
+    M = M / (M.norm() + epsilon)  # Spectral norm normalization
 
     for _ in range(steps):
         A = M @ M.T
@@ -105,7 +105,7 @@ def newton_schulz_robust(M, steps=5, epsilon=1e-7):
     return M
 ```
 
-### 2. 解耦核范数衰减（栀）
+### 2. Decoupled Nuclear Norm Decay (by Zhi)
 
 ```python
 class NewtonSchulzLowRankDecay:
@@ -115,49 +115,49 @@ class NewtonSchulzLowRankDecay:
             W.sub_(self.decay_rate * sign_W)  # W <- W - α·Sign(W)
 ```
 
-### 3. Luon：融合的核范数衰减
+### 3. Luon: Fused Nuclear Norm Decay
 
 ```python
 class HybridLowRankMuon(Optimizer):
     def step(self):
-        # 对目标参数 (Q, K) 使用 Muon + 融合低秩
-        g_fused = grad + lambda * W           # 融合梯度
-        momentum.mul_(mu).add_(g_fused)       # 动量更新
-        update = newton_schulz(momentum)      # 正交化
-        W.sub_(lr * update)                   # 参数更新
+        # Use Muon + fused low-rank for target parameters (Q, K)
+        g_fused = grad + lambda * W           # Fused gradient
+        momentum.mul_(mu).add_(g_fused)       # Momentum update
+        update = newton_schulz(momentum)      # Orthogonalization
+        W.sub_(lr * update)                   # Parameter update
 
-        # 其他参数使用标准 AdamW
+        # Use standard AdamW for other parameters
 ```
 
 ---
 
-## 🧪 实验设置
+## 🧪 Experimental Setup
 
-| 配置 | 值 |
-|------|-----|
-| **任务** | 模加法 $a + b \pmod{113}$ |
-| **架构** | 2层 Transformer (dim=128, heads=4) |
-| **归一化** | Pre-RMSNorm + QK-Norm |
-| **数据划分** | 50% 训练 / 50% 验证 |
+| Configuration | Value |
+|---------------|-------|
+| **Task** | Modular Addition $a + b \pmod{113}$ |
+| **Architecture** | 2-layer Transformer (dim=128, heads=4) |
+| **Normalization** | Pre-RMSNorm + QK-Norm |
+| **Data Split** | 50% Train / 50% Validation |
 
 ---
 
-## 📁 项目结构
+## 📁 Project Structure
 
 ```
 Luon/
-├── assets/          # 资源文件夹
-    ├── mechanism_analysis.png        # 栀的原始分析图
-│   └── mechanism_analysis_final.png  # Luon生成的分析图
-├── Luon.py          # 主实验代码（自包含）
-├── experiment.py    # 栀的原始实验脚本
-└── README.md        # 本文件
+├── assets/          # Assets folder
+    ├── mechanism_analysis.png        # Zhi's original analysis plot
+│   └── mechanism_analysis_final.png  # Analysis plot generated by Luon
+├── Luon.py          # Main experiment code (self-contained)
+├── experiment.py    # Zhi's original experiment script
+└── README.md        # This file
 
 ```
 
 ---
 
-## 📝 引用
+## 📝 Citation
 
 ```bibtex
 @misc{luon2025,
@@ -170,11 +170,11 @@ Luon/
 
 ---
 
-## 🔗 相关工作
+## 🔗 Related Work
 
-- [Muon Optimizer](https://github.com/KellerJordan/Muon) - 原始 Muon 实现
-- [Grokking](https://arxiv.org/abs/2201.02177) - Grokking 现象研究
-- [Grokking by Rank Collapse](https://github.com/Chunjiang-Intelligence/low-rank-decay) - 栀的原始实现
+- [Muon Optimizer](https://github.com/KellerJordan/Muon) - Original Muon implementation
+- [Grokking](https://arxiv.org/abs/2201.02177) - Grokking phenomenon research
+- [Grokking by Rank Collapse](https://github.com/Chunjiang-Intelligence/low-rank-decay) - Zhi's original implementation
 
 ---
 
