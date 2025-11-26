@@ -48,6 +48,15 @@ This is the subgradient of the nuclear norm, efficiently computed using only mat
 
 ## What's New?
 
+### Luon vs Muon: Formula Comparison
+
+| Optimizer | Update Formula |
+|-----------|----------------|
+| **Muon** | $W_{t+1} = W_t - \eta \cdot \text{NS}\big(\text{Momentum}(G_t)\big)$ |
+| **Luon** | $W_{t+1} = W_t - \eta \cdot \text{NS}\big(\text{Momentum}(G_t + \lambda W_t)\big)$ |
+
+The key difference: **Luon fuses the nuclear norm regularization term $\lambda W$ into the gradient before applying Newton-Schulz orthogonalization**, enabling implicit low-rank regularization with no extra computation cost.
+
 ### Position of Regularization Term: Back to Adam
 
 Early Adam added weight decay directly to the gradient, but this is mathematically incorrect—since Adam uses adaptive learning rates and momentum mechanisms, the correct approach is to **decouple** weight decay and apply it directly to the parameters themselves. This is the origin of AdamW. The Muon optimizer follows this decoupling philosophy.
