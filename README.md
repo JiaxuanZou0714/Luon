@@ -1,116 +1,162 @@
-# Grokking by Rank Collapse 📉
-### Nuclear Norm Regularization as a Complexity Prior for Scale-Invariant Transformers
+# Luon: Low-Rank Muon Optimizer 📉
+### Fusing Nuclear Norm Regularization into Muon for Scale-Invariant Transformers
 
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![Status](https://img.shields.io/badge/Status-Experimental-blue)]()
 
-> **TL;DR:** In modern LLM architectures (RMSNorm, QK-Norm), standard Weight Decay (L2) fails to control model complexity due to scale invariance. We introduce **Low-Rank Decay**, an efficient Nuclear Norm regularization technique using Newton-Schulz iteration (no SVD required). It aggressively prunes the "memorization circuit," forcing **Rank Collapse** and accelerating **Grokking** by orders of magnitude.
+> **TL;DR:** 在现代 LLM 架构（RMSNorm, QK-Norm）中，标准 L2 Weight Decay 因尺度不变性而无法有效控制模型复杂度。我们提出两种基于 Newton-Schulz 迭代的低秩正则化方法，并将其融合到 Muon 优化器中，形成 **Luon (Low-rank Muon)**，在 Grokking 任务上实现更快的泛化。
 
 ---
 
-## 🔥 Key Results
+## 🔥 核心方法
 
-### 1. The Phase Diagram of Generalization
-**Low-Rank Decay significantly expands the grokking region.**
-While L2 decay fails to generalize in data-scarce regimes (40%-50% data), Low-Rank Decay successfully forces the model to learn the algorithm, achieving perfect accuracy.
+本仓库实现了三种正则化策略的对比实验：
 
-![Phase Diagram](assets/phase_diagram.png)
-
-### 2. The Mechanism: Rank Collapse
-**Rank collapse is a pre-condition for generalization.**
-Our method induces a spectral phase transition (orange line) within the first 500 steps, reducing the effective rank of QK matrices to near-unity. This creates a low-dimensional manifold that facilitates learning the structured solution.
-
-![Mechanism Analysis](assets/mechanism_analysis.png)
+| 方法 | 优化器 | 低秩衰减方式 | 更新公式 |
+|------|--------|-------------|----------|
+| **L2 Baseline** | AdamW | Weight Decay | $W \leftarrow W - \lambda W$ |
+| **Explicit LowRank** | AdamW + 回调 | 解耦的 Sign(W) 衰减 | $W \leftarrow W - \alpha \cdot \text{Sign}(W)$ |
+| **Luon (Fused)** | Muon + AdamW | 融合到动量中 | $W \leftarrow W - \eta \cdot \text{NS}(\text{Momentum}(G + \lambda W))$ |
 
 ---
 
-## 🧠 The Motivation
+## 🧠 动机
 
-### The Failure of L2 Decay
-Modern Transformers (e.g., Gemma 3, LLaMA) are heavily normalized (RMSNorm, QK-Norm). In these **Scale-Invariant Architectures**, scaling the weight matrix $W$ by a constant $\alpha$ does not change the model's output:
-$\text{Norm}(\alpha W x) = \text{Norm}(W x)$
-However, standard L2 Weight Decay penalizes the magnitude $\|W\|_F^2$. This means the optimizer can satisfy the regularization simply by shrinking weights without changing the function or reducing the actual complexity (Rank).
+### L2 Decay 在尺度不变网络中失效
 
-### The Solution: Nuclear Norm ($\|W\|_*$)
-To control complexity in a scale-invariant network, we must control the **Rank**, not the Magnitude. We apply Nuclear Norm Regularization:
-$\mathcal{L} = \mathcal{L}_{task} + \lambda \sum \sigma_i(W)$
-This acts as an L1 norm on the singular values, promoting **Spectral Sparsity**.
+现代 Transformer（如 Gemma 3, LLaMA）大量使用归一化层。在这些**尺度不变架构**中：
 
-### The Trick: Newton-Schulz Iteration
-Computing SVD at every step is too slow. We use **Newton-Schulz iteration** to approximate the sign of the matrix ($\text{sign}(W) = U V^T$), which is the gradient of the Nuclear Norm. This allows us to apply Low-Rank Decay with the efficiency of matrix multiplication.
+$$\text{Norm}(\alpha W x) = \text{Norm}(W x)$$
+
+L2 Weight Decay 惩罚的是 $\|W\|_F^2$，优化器可以简单地缩小权重而不改变函数行为，无法真正降低复杂度（秩）。
+
+### 解决方案：Nuclear Norm ($\|W\|_*$)
+
+要在尺度不变网络中控制复杂度，必须控制**秩**而非幅度。核范数正则化：
+
+$$\mathcal{L} = \mathcal{L}_{task} + \lambda \sum_i \sigma_i(W)$$
+
+相当于对奇异值施加 L1 惩罚，促进**谱稀疏性**。
+
+### 高效实现：Newton-Schulz 迭代
+
+每步计算 SVD 太慢。我们使用 **Newton-Schulz 迭代** 逼近矩阵符号函数：
+
+$$\text{Sign}(W) = W (W^T W)^{-1/2} \approx U V^T$$
+
+这是核范数的次梯度，只需矩阵乘法即可高效计算。
 
 ---
 
-## 🚀 Quick Start
+## 🚀 快速开始
 
-This repository is self-contained in a single file for reproducibility.
-
-### Requirements
+### 环境依赖
 ```bash
 pip install torch numpy matplotlib tqdm seaborn
 ```
 
-### 1. Reproduce Mechanism Analysis (Fast)
-To see the **Rank Collapse** and **Attention Patterns** (generating the mechanism plot):
+### 运行实验
 ```bash
-python experiment.py --mode mechanism
+python Luon.py --steps 3000 --device cuda
 ```
 
-### 2. Reproduce Phase Diagram (Slow)
-To run the grid search over data fractions and decay strengths:
-```bash
-python experiment.py --mode phase_diagram
-```
+这将生成 `mechanism_analysis_final.png`，包含：
+- Grokking 速度对比
+- Effective Rank 演化
+- 奇异值谱分布
+- Attention Pattern 可视化
 
 ---
 
-## 💻 Algorithm Implementation
+## 💻 核心算法
 
-The core logic is decoupled from the optimizer, making it easy to plug into existing training loops (e.g., HF Trainer).
+### 1. Newton-Schulz 迭代
+
+```python
+def newton_schulz_robust(M, steps=5, epsilon=1e-7):
+    """计算矩阵符号函数: Sign(M) = M * (M^T * M)^(-1/2)"""
+    M = M / (M.norm() + epsilon)  # 谱范数归一化
+
+    for _ in range(steps):
+        A = M @ M.T
+        M = 0.5 * (3.0 * I - A) @ M
+
+    return M
+```
+
+### 2. 显式低秩衰减（解耦方式）
 
 ```python
 class NewtonSchulzLowRankDecay:
     def step(self):
         for W in self.params:
-            # 1. Normalize Spectral Norm
-            X = W / (W.norm() + 1e-8)
-            
-            # 2. Newton-Schulz Iteration (Approximate UV^T)
-            # Y_{k+1} = 0.5 * Y_k * (3I - Y_k^T * Y_k)
-            Y = X
-            for _ in range(5):
-                A = Y.T @ Y
-                Y = 0.5 * Y @ (3.0 * torch.eye(...) - A)
-            
-            # 3. Apply Update
-            # W <- W - lambda * sign(W)
-            W.sub_(self.decay_rate * Y)
+            sign_W = newton_schulz_robust(W.clone())
+            W.sub_(self.decay_rate * sign_W)  # W <- W - α·Sign(W)
+```
+
+### 3. Luon：融合低秩衰减的 Muon
+
+```python
+class HybridLowRankMuon(Optimizer):
+    def step(self):
+        # 对目标参数 (Q, K) 使用 Muon + 融合低秩
+        g_fused = grad + lambda * W           # 融合梯度
+        momentum.mul_(mu).add_(g_fused)       # 动量更新
+        update = newton_schulz(momentum)      # 正交化
+        W.sub_(lr * update)                   # 参数更新
+
+        # 其他参数使用标准 AdamW
 ```
 
 ---
 
-## 🧪 Experimental Setup
+## 🧪 实验设置
 
-*   **Task:** Modular Addition ($a + b \pmod P$)
-*   **Architecture:** Scale-Invariant Transformer (Pre-RMSNorm + **QK-Norm**)
-*   **Baselines:** 
-    *   AdamW + L2 Decay (Standard)
-    *   AdamW + Low-Rank Decay (Ours)
+| 配置 | 值 |
+|------|-----|
+| **任务** | 模加法 $a + b \pmod{113}$ |
+| **架构** | 2层 Transformer (dim=128, heads=4) |
+| **归一化** | Pre-RMSNorm + QK-Norm |
+| **数据划分** | 50% 训练 / 50% 验证 |
 
 ---
 
-## 📝 Citation
+## 📊 评估指标
 
-If you find this useful for your research on Grokking, Mechanistic Interpretability, or LLM Optimization, please cite:
+- **Grokking Speed**: 验证集准确率达到 99% 所需的步数
+- **Stable Rank**: $\|W\|_F^2 / \|W\|_2^2$，衡量有效秩
+- **Singular Value Spectrum**: QK 权重矩阵的奇异值分布
+
+---
+
+## 📁 项目结构
+
+```
+Luon/
+├── Luon.py          # 主实验代码（自包含）
+├── README.md        # 本文件
+└── mechanism_analysis_final.png  # 生成的分析图
+```
+
+---
+
+## 📝 引用
 
 ```bibtex
-@misc{lowrank2025,
-  title={Grokking by Rank Collapse: Nuclear Norm Regularization as a Complexity Prior},
+@misc{luon2025,
+  title={Luon: Low-Rank Muon Optimizer for Scale-Invariant Transformers},
   year={2025},
   publisher={GitHub},
-  howpublished={\url{https://github.com/Chunjiang-Intelligence/low-rank-decay/}}
+  howpublished={\url{https://github.com/JiaxuanZou0714/Luon}}
 }
 ```
+
+---
+
+## 🔗 相关工作
+
+- [Muon Optimizer](https://github.com/KellerJordan/Muon) - 原始 Muon 实现
+- [Grokking](https://arxiv.org/abs/2201.02177) - Grokking 现象研究
 
 ---
 
