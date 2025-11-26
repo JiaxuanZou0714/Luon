@@ -20,7 +20,7 @@
 
 ---
 
-## 🧠 动机（proposed by 栀）
+## 🧠 原始动机（proposed by 栀）
 
 ### L2 Decay 在尺度不变网络中失效
 
@@ -32,7 +32,7 @@ L2 Weight Decay 惩罚的是 $\|W\|_F^2$，优化器可以简单地缩小权重�
 
 ### 解决方案：Nuclear Norm ($\|W\|_*$)
 
-要在尺度不变网络中控制复杂度，必须控制**秩**而非幅度。核范数正则化：
+要在尺度不变网络中控制复杂度，必须控制**秩**而非幅度。但求解秩是一个NP-hard问题，所以我们可以考虑它的凸松弛，核范数正则化：
 
 $$\mathcal{L} = \mathcal{L}_{task} + \lambda \sum_i \sigma_i(W)$$
 
@@ -45,6 +45,25 @@ $$\mathcal{L} = \mathcal{L}_{task} + \lambda \sum_i \sigma_i(W)$$
 $$\text{Sign}(W) = W (W^T W)^{-1/2} \approx U V^T$$
 
 这是核范数的次梯度，只需矩阵乘法即可高效计算。
+
+## What's new?
+
+### 正则项的位置：回到 Adam
+
+早期 Adam 将 weight decay 直接加在梯度上，但这在数学上是不正确的——由于 Adam 使用自适应学习率和动量机制，正确做法是将 weight decay **解耦**，直接作用于参数本身，这就是 AdamW 的由来。Muon 优化器沿用了这一解耦思路。
+
+然而，当我们使用 Newton-Schulz 迭代计算核范数的次梯度时，解耦方式会带来效率问题：
+
+| 方式 | NS 计算次数 | 说明 |
+|------|------------|------|
+| 解耦 | **2次** | Sign(W) 用于正则化 + Sign(momentum) 用于更新 |
+| 融合 | **1次** | Sign(momentum + λW) 同时完成两者 |
+
+为了避免双重计算，我们提出将核范数正则项 **融合** 进 Muon 的梯度更新中：
+
+$$\text{Update} = \text{NS}\big(\text{Momentum}(G + \lambda W)\big)$$
+
+这样只需一次 Newton-Schulz 迭代，效率提升近一倍。我称之为 **"回到 Adam"**——正则项重新融入梯度，但这次是正确的。
 
 ---
 
