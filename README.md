@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![Status](https://img.shields.io/badge/Status-Experimental-blue)]()
 
-> **TL;DR:** 在现代 LLM 架构（RMSNorm, QK-Norm）中，标准 L2 Weight Decay 因尺度不变性而无法有效控制模型复杂度。我们提出两种基于 Newton-Schulz 迭代的低秩正则化方法，并将其融合到 Muon 优化器中，形成 **Luon (Low-rank Muon)**，在 Grokking 任务上实现更快的泛化。
+> **TL;DR:** 在现代 LLM 架构（RMSNorm, QK-Norm）中，标准 L2 Weight Decay 因尺度不变性而无法有效控制模型复杂度。栀提出一种基于 Newton-Schulz 迭代的低秩正则化方法，我们在此基础上并将其融合到 Muon 优化器中，形成 **Luon (Low-rank Muon)**，在 Grokking 任务上实现更快的泛化。
 
 ---
 
@@ -20,7 +20,7 @@
 
 ---
 
-## 🧠 动机
+## 🧠 动机（proposed by 栀）
 
 ### L2 Decay 在尺度不变网络中失效
 
@@ -86,7 +86,7 @@ def newton_schulz_robust(M, steps=5, epsilon=1e-7):
     return M
 ```
 
-### 2. 解耦核范数衰减
+### 2. 解耦核范数衰减（栀）
 
 ```python
 class NewtonSchulzLowRankDecay:
