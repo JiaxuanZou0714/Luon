@@ -16,7 +16,7 @@
 |------|--------|-------------|----------|
 | **L2 Baseline** | AdamW | Weight Decay | $W \leftarrow W - \lambda W$ |
 | **Explicit LowRank** | AdamW + 回调 | 解耦的核范数衰减 | $W \leftarrow W - \alpha \cdot \text{Sign}(W)$ |
-| **Luon (Fused)** | Muon + AdamW | 融合的核范数衰减 | $W \leftarrow W - \eta \cdot \text{NS}(\text{Momentum}(G) + \lambda W)$ |
+| **Luon (Fused)** | Muon + AdamW | 融合的核范数衰减 | $W \leftarrow W - \eta \cdot \text{NS}(\text{Momentum}(G + \lambda W))$ |
 
 ---
 
@@ -61,7 +61,7 @@ $$\text{Sign}(W) = W (W^T W)^{-1/2} \approx U V^T$$
 
 为了避免双重计算，我们提出将核范数正则项 **融合** 进 Muon 的梯度更新中：
 
-$$\text{Update} = \text{NS}\big(\text{Momentum}(G) + \lambda W\big)$$
+$$\text{Update} = \text{NS}\big(\text{Momentum}(G + \lambda W)\big)$$
 
 这样只需一次 Newton-Schulz 迭代，效率提升近一倍。我称之为 **"回到 Adam"**——正则项重新融入梯度，但这次是正确的。
 
@@ -121,9 +121,9 @@ class NewtonSchulzLowRankDecay:
 class HybridLowRankMuon(Optimizer):
     def step(self):
         # 对目标参数 (Q, K) 使用 Muon + 融合低秩
-        momentum.mul_(mu).add_(grad)          # 动量更新 (只对梯度)
-        m_fused = momentum + lambda * W       # 融合: Momentum(G) + λW
-        update = newton_schulz(m_fused)       # 正交化
+        g_fused = grad + lambda * W           # 融合梯度
+        momentum.mul_(mu).add_(g_fused)       # 动量更新
+        update = newton_schulz(momentum)      # 正交化
         W.sub_(lr * update)                   # 参数更新
 
         # 其他参数使用标准 AdamW
