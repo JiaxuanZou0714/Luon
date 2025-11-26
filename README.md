@@ -15,8 +15,8 @@
 | 方法 | 优化器 | 低秩衰减方式 | 更新公式 |
 |------|--------|-------------|----------|
 | **L2 Baseline** | AdamW | Weight Decay | $W \leftarrow W - \lambda W$ |
-| **Explicit LowRank** | AdamW + 回调 | 解耦的 Sign(W) 衰减 | $W \leftarrow W - \alpha \cdot \text{Sign}(W)$ |
-| **Luon (Fused)** | Muon + AdamW | 融合到动量中 | $W \leftarrow W - \eta \cdot \text{NS}(\text{Momentum}(G + \lambda W))$ |
+| **Explicit LowRank** | AdamW + 回调 | 解耦的核范数衰减 | $W \leftarrow W - \alpha \cdot \text{Sign}(W)$ |
+| **Luon (Fused)** | Muon + AdamW | 融合的核范数衰减 | $W \leftarrow W - \eta \cdot \text{NS}(\text{Momentum}(G + \lambda W))$ |
 
 ---
 
@@ -66,6 +66,8 @@ python Luon.py --steps 3000 --device cuda
 - 奇异值谱分布
 - Attention Pattern 可视化
 
+![](mechanism_analysis_final.png)
+
 ---
 
 ## 💻 核心算法
@@ -84,7 +86,7 @@ def newton_schulz_robust(M, steps=5, epsilon=1e-7):
     return M
 ```
 
-### 2. 显式低秩衰减（解耦方式）
+### 2. 解耦核范数衰减
 
 ```python
 class NewtonSchulzLowRankDecay:
@@ -94,7 +96,7 @@ class NewtonSchulzLowRankDecay:
             W.sub_(self.decay_rate * sign_W)  # W <- W - α·Sign(W)
 ```
 
-### 3. Luon：融合低秩衰减的 Muon
+### 3. Luon：融合的核范数衰减
 
 ```python
 class HybridLowRankMuon(Optimizer):
@@ -121,21 +123,17 @@ class HybridLowRankMuon(Optimizer):
 
 ---
 
-## 📊 评估指标
-
-- **Grokking Speed**: 验证集准确率达到 99% 所需的步数
-- **Stable Rank**: $\|W\|_F^2 / \|W\|_2^2$，衡量有效秩
-- **Singular Value Spectrum**: QK 权重矩阵的奇异值分布
-
----
-
 ## 📁 项目结构
 
 ```
 Luon/
+├── assets/          # 资源文件夹
+    ├── mechanism_analysis.png        # 栀的原始分析图
+│   └── mechanism_analysis_final.png  # Luon生成的分析图
 ├── Luon.py          # 主实验代码（自包含）
-├── README.md        # 本文件
-└── mechanism_analysis_final.png  # 生成的分析图
+├── experiment.py    # 栀的原始实验脚本
+└── README.md        # 本文件
+
 ```
 
 ---
@@ -157,6 +155,7 @@ Luon/
 
 - [Muon Optimizer](https://github.com/KellerJordan/Muon) - 原始 Muon 实现
 - [Grokking](https://arxiv.org/abs/2201.02177) - Grokking 现象研究
+- [Grokking by Rank Collapse](https://github.com/Chunjiang-Intelligence/low-rank-decay) - 栀的原始实现
 
 ---
 
